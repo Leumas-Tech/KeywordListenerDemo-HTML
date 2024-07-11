@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice and Keystroke Triggered Functions</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .keyword-box, .function-box, .keystroke-box {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-6">
+    <div class="max-w-6xl mx-auto bg-white shadow-md rounded-lg p-6">
+        <div class="flex justify-between items-center mb-4">
+            <h1 class="text-2xl font-bold">Voice and Keystroke Triggered Functions</h1>
+            <label class="inline-flex items-center">
+                <input type="checkbox" id="listenerSwitch" class="form-checkbox text-indigo-600">
+                <span class="ml-2">Listening</span>
+            </label>
+        </div>
+        <div class="flex justify-between mb-4">
+            <div>
+                <button id="exportBtn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Export</button>
+                <input type="file" id="importInput" class="hidden">
+                <label for="importInput" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded cursor-pointer">Import</label>
+            </div>
+            <div>
+                <button id="clearAllBtn" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">Clear All</button>
+                <button id="stopAllFunctionsBtn" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">Stop All Functions</button>
+            </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <h2 class="text-lg font-semibold mb-2">Keywords/Keyphrases</h2>
+                <div id="keywordsContainer"></div>
+                <input type="text" id="keywordInput" class="w-full p-2 border border-gray-300 rounded mb-2" placeholder="Add a keyword or keyphrase">
+                <button id="addKeywordBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">Add Keyword</button>
+                <h2 class="text-lg font-semibold mb-2 mt-4">Keystrokes</h2>
+                <div id="keystrokesContainer"></div>
+                <input type="text" id="keystrokeInput" class="w-full p-2 border border-gray-300 rounded mb-2" placeholder="Add a keystroke (e.g., Ctrl+Shift+A)">
+                <button id="addKeystrokeBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">Add Keystroke</button>
+            </div>
+            <div>
+                <h2 class="text-lg font-semibold mb-2">Functions</h2>
+                <div id="functionsContainer"></div>
+                <input type="text" id="functionNameInput" class="w-full p-2 border border-gray-300 rounded mb-2" placeholder="Function name">
+                <textarea id="functionCodeInput" class="w-full p-2 border border-gray-300 rounded mb-2" rows="4" placeholder="Function code"></textarea>
+                <button id="addFunctionBtn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Add Function</button>
+                <button id="generateAiFunctionBtn" class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">Generate with AI</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Key Prompt Modal -->
+    <div id="apiKeyPrompt" class="hidden fixed inset-0 bg-gray-800 bg-opacity-50 flex justify-center items-center">
+        <div class="bg-white p-4 rounded shadow-md">
+            <h2 class="text-xl font-bold mb-4">API Key Required</h2>
+            <input type="password" id="apiKeyInput" class="w-full p-2 border border-gray-300 rounded" placeholder="Enter your OpenAI API key">
+            <div class="flex justify-end mt-4">
+                <button id="saveApiKeyBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mr-2">Save</button>
+                <button id="cancelApiKeyBtn" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Function Generator Modal -->
+    <div id="aiFunctionModal" class="hidden fixed inset-0 bg-gray-800 bg-opacity-50 flex justify-center items-center">
+        <div class="bg-white p-4 rounded shadow-md w-full max-w-lg">
+            <h2 class="text-xl font-bold mb-4">Generate Function with AI</h2>
+            <textarea id="aiPromptInput" class="w-full p-2 border border-gray-300 rounded mb-2" rows="4">Write a JavaScript function that does something interesting.</textarea>
+            <div class="flex justify-end mt-4">
+                <button id="generateFunctionBtn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mr-2">Generate</button>
+                <button id="cancelAiFunctionBtn" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let keywords = JSON.parse(localStorage.getItem('keywords')) || [];
+        let functions = JSON.parse(localStorage.getItem('functions')) || {};
+        let keystrokes = JSON.parse(localStorage.getItem('keystrokes')) || [];
+        let isListening = false;
+        let apiKey = localStorage.getItem('openai_api_key');
+        let activeIntervals = [];
+        let activeFunctionNames = new Set();
+
+        document.getElementById('listenerSwitch').addEventListener('change', (event) => {
+            isListening = event.target.checked;
+            if (isListening) {
+                startListening();
+            } else {
+                stopListening();
+            }
+        });
+
+        document.getElementById('addKeywordBtn').addEventListener('click', () => {
+            const keyword = document.getElementById('keywordInput').value.trim();
+            if (keyword) {
+                keywords.push({ text: keyword, functionName: null });
+                localStorage.setItem('keywords', JSON.stringify(keywords));
+                updateKeywordsContainer();
+                document.getElementById('keywordInput').value = '';
+            }
+        });
+
+        document.getElementById('addKeystrokeBtn').addEventListener('click', () => {
+            const keystroke = document.getElementById('keystrokeInput').value.trim();
+            if (keystroke) {
+                keystrokes.push({ stroke: keystroke, functionName: null });
+                localStorage.setItem('keystrokes', JSON.stringify(keystrokes));
+                updateKeystrokesContainer();
+                document.getElementById('keystrokeInput').value = '';
+            }
+        });
+
+        document.getElementById('addFunctionBtn').addEventListener('click', () => {
+            const functionName = document.getElementById('functionNameInput').value.trim();
+            const functionCode = document.getElementById('functionCodeInput').value.trim();
+            if (functionName && functionCode) {
+                functions[functionName] = functionCode;
+                localStorage.setItem('functions', JSON.stringify(functions));
+                updateFunctionsContainer();
+                document.getElementById('functionNameInput').value = '';
+                document.getElementById('functionCodeInput').value = '';
+            }
+        });
+
+        document.getElementById('generateAiFunctionBtn').addEventListener('click', () => {
+            if (!apiKey) {
+                document.getElementById('apiKeyPrompt').classList.remove('hidden');
+            } else {
+                document.getElementById('aiFunctionModal').classList.remove('hidden');
+            }
+        });
+
+        document.getElementById('saveApiKeyBtn').addEventListener('click', () => {
+            apiKey = document.getElementById('apiKeyInput').value.trim();
+            if (apiKey) {
+                localStorage.setItem('openai_api_key', apiKey);
+                document.getElementById('apiKeyPrompt').classList.add('hidden');
+            }
+        });
+
+        document.getElementById('cancelApiKeyBtn').addEventListener('click', () => {
+            document.getElementById('apiKeyPrompt').classList.add('hidden');
+        });
+
+        document.getElementById('generateFunctionBtn').addEventListener('click', async () => {
+            const prompt = document.getElementById('aiPromptInput').value.trim();
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: 'gpt-3.5-turbo',
+                    messages: [{ role: 'user', content: prompt }],
+                    max_tokens: 150,
+                    n: 1,
+                    stop: null,
+                    temperature: 0.7
+                })
+            });
+
+            const data = await response.json();
+            const generatedFunction = data.choices[0].message.content.trim();
+            document.getElementById('functionCodeInput').value = generatedFunction;
+            document.getElementById('aiFunctionModal').classList.add('hidden');
+        });
+
+        document.getElementById('cancelAiFunctionBtn').addEventListener('click', () => {
+            document.getElementById('aiFunctionModal').classList.add('hidden');
+        });
+
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            const data = { keywords, functions, keystrokes };
+            const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'keywords_functions_keystrokes.json';
+            link.click();
+        });
+
+        document.getElementById('importInput').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const data = JSON.parse(e.target.result);
+                keywords = data.keywords || [];
+                functions = data.functions || {};
+                keystrokes = data.keystrokes || [];
+                localStorage.setItem('keywords', JSON.stringify(keywords));
+                localStorage.setItem('functions', JSON.stringify(functions));
+                localStorage.setItem('keystrokes', JSON.stringify(keystrokes));
+                updateKeywordsContainer();
+                updateFunctionsContainer();
+                updateKeystrokesContainer();
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('clearAllBtn').addEventListener('click', () => {
+            if (confirm('Are you sure you want to clear all keywords, keystrokes, and functions?')) {
+                keywords = [];
+                functions = {};
+                keystrokes = [];
+                localStorage.removeItem('keywords');
+                localStorage.removeItem('functions');
+                localStorage.removeItem('keystrokes');
+                updateKeywordsContainer();
+                updateFunctionsContainer();
+                updateKeystrokesContainer();
+            }
+        });
+
+        document.getElementById('stopAllFunctionsBtn').addEventListener('click', () => {
+            stopAllFunctions();
+        });
+
+        function stopAllFunctions() {
+            activeIntervals.forEach(interval => clearInterval(interval));
+            activeIntervals = [];
+            activeFunctionNames.clear();
+            window.speechSynthesis.cancel(); // Stop any ongoing speech synthesis
+            alert('All functions stopped!');
+        }
+
+        function updateKeywordsContainer() {
+            const keywordsContainer = document.getElementById('keywordsContainer');
+            keywordsContainer.innerHTML = '';
+            keywords.forEach((keyword, index) => {
+                const div = document.createElement('div');
+                div.className = 'keyword-box';
+                div.innerHTML = `
+                    <input type="text" value="${keyword.text}" class="w-full p-2 border border-gray-300 rounded mb-2" onchange="updateKeywordText(${index}, this.value)">
+                    <select class="w-full p-2 border border-gray-300 rounded mb-2" onchange="updateKeywordFunction(${index}, this.value)">
+                        <option value="">Select Function</option>
+                        ${Object.keys(functions).map(functionName => `
+                            <option value="${functionName}" ${keyword.functionName === functionName ? 'selected' : ''}>${functionName}</option>
+                        `).join('')}
+                    </select>
+                    <button class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded" onclick="removeKeyword(${index})">Remove</button>
+                `;
+                keywordsContainer.appendChild(div);
+            });
+        }
+
+        function updateKeystrokesContainer() {
+            const keystrokesContainer = document.getElementById('keystrokesContainer');
+            keystrokesContainer.innerHTML = '';
+            keystrokes.forEach((keystroke, index) => {
+                const div = document.createElement('div');
+                div.className = 'keystroke-box';
+                div.innerHTML = `
+                    <input type="text" value="${keystroke.stroke}" class="w-full p-2 border border-gray-300 rounded mb-2" onchange="updateKeystrokeText(${index}, this.value)">
+                    <select class="w-full p-2 border border-gray-300 rounded mb-2" onchange="updateKeystrokeFunction(${index}, this.value)">
+                        <option value="">Select Function</option>
+                        ${Object.keys(functions).map(functionName => `
+                            <option value="${functionName}" ${keystroke.functionName === functionName ? 'selected' : ''}>${functionName}</option>
+                        `).join('')}
+                    </select>
+                    <button class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded" onclick="removeKeystroke(${index})">Remove</button>
+                `;
+                keystrokesContainer.appendChild(div);
+            });
+        }
+
+        function updateFunctionsContainer() {
+            const functionsContainer = document.getElementById('functionsContainer');
+            functionsContainer.innerHTML = '';
+            Object.keys(functions).forEach((functionName, index) => {
+                const div = document.createElement('div');
+                div.className = 'function-box';
+                div.innerHTML = `
+                    <input type="text" value="${functionName}" class="w-full p-2 border border-gray-300 rounded mb-2" readonly>
+                    <textarea class="w-full p-2 border border-gray-300 rounded mb-2" rows="4" onchange="updateFunctionCode('${functionName}', this.value)">${functions[functionName]}</textarea>
+                    <div class="flex space-x-2">
+                        <button class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded" onclick="removeFunction('${functionName}')">Remove</button>
+                        <button class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded" onclick="openAiFunctionModal('${functionName}')">Generate with AI</button>
+                        <button class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded" onclick="testFunction('${functionName}')">Test</button>
+                    </div>
+                `;
+                functionsContainer.appendChild(div);
+            });
+        }
+
+        function updateKeywordText(index, value) {
+            keywords[index].text = value;
+            localStorage.setItem('keywords', JSON.stringify(keywords));
+        }
+
+        function updateKeywordFunction(index, value) {
+            keywords[index].functionName = value;
+            localStorage.setItem('keywords', JSON.stringify(keywords));
+        }
+
+        function updateKeystrokeText(index, value) {
+            keystrokes[index].stroke = value;
+            localStorage.setItem('keystrokes', JSON.stringify(keystrokes));
+        }
+
+        function updateKeystrokeFunction(index, value) {
+            keystrokes[index].functionName = value;
+            localStorage.setItem('keystrokes', JSON.stringify(keystrokes));
+        }
+
+        function updateFunctionCode(functionName, value) {
+            functions[functionName] = value;
+            localStorage.setItem('functions', JSON.stringify(functions));
+        }
+
+        function removeKeyword(index) {
+            keywords.splice(index, 1);
+            localStorage.setItem('keywords', JSON.stringify(keywords));
+            updateKeywordsContainer();
+        }
+
+        function removeKeystroke(index) {
+            keystrokes.splice(index, 1);
+            localStorage.setItem('keystrokes', JSON.stringify(keystrokes));
+            updateKeystrokesContainer();
+        }
+
+        function removeFunction(functionName) {
+            delete functions[functionName];
+            localStorage.setItem('functions', JSON.stringify(functions));
+            updateFunctionsContainer();
+            updateKeywordsContainer(); // To refresh the function list in keyword boxes
+            updateKeystrokesContainer(); // To refresh the function list in keystroke boxes
+        }
+
+        function openAiFunctionModal(functionName) {
+            document.getElementById('functionNameInput').value = functionName;
+            document.getElementById('aiFunctionModal').classList.remove('hidden');
+        }
+
+        function testFunction(functionName) {
+            if (functions[functionName]) {
+                eval(functions[functionName]);
+            }
+        }
+
+        function startListening() {
+            if (!('webkitSpeechRecognition' in window)) {
+                alert('This browser does not support speech recognition. Please use a supported browser.');
+                return;
+            }
+
+            const recognition = new webkitSpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[event.resultIndex][0].transcript.trim().toLowerCase();
+                keywords.forEach(keyword => {
+                    if (transcript.includes(keyword.text.toLowerCase())) {
+                        if (keyword.functionName && functions[keyword.functionName] && !activeFunctionNames.has(keyword.functionName)) {
+                            activeFunctionNames.add(keyword.functionName);
+                            eval(functions[keyword.functionName]);
+                            setTimeout(() => activeFunctionNames.delete(keyword.functionName), 5000); // Prevent the function from being called again for 5 seconds
+                        }
+                    }
+                });
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error', event);
+            };
+
+            recognition.onend = () => {
+                if (isListening) {
+                    recognition.start();
+                }
+            };
+
+            recognition.start();
+        }
+
+        function stopListening() {
+            // Implement stop listening functionality if necessary
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            updateKeywordsContainer();
+            updateFunctionsContainer();
+            updateKeystrokesContainer();
+
+            document.addEventListener('keydown', (event) => {
+                const keyStroke = [];
+                if (event.ctrlKey) keyStroke.push('Ctrl');
+                if (event.shiftKey) keyStroke.push('Shift');
+                if (event.altKey) keyStroke.push('Alt');
+                keyStroke.push(event.key);
+                const keyStrokeStr = keyStroke.join('+');
+
+                keystrokes.forEach(keystroke => {
+                    if (keystroke.stroke.toLowerCase() === keyStrokeStr.toLowerCase()) {
+                        if (keystroke.functionName && functions[keystroke.functionName]) {
+                            eval(functions[keystroke.functionName]);
+                        }
+                    }
+                });
+            });
+        });
+
+        window.updateKeywordText = updateKeywordText;
+        window.updateKeywordFunction = updateKeywordFunction;
+        window.updateFunctionCode = updateFunctionCode;
+        window.removeKeyword = removeKeyword;
+        window.removeKeystroke = removeKeystroke;
+        window.removeFunction = removeFunction;
+        window.openAiFunctionModal = openAiFunctionModal;
+        window.testFunction = testFunction;
+
+        document.addEventListener('keydown', (event) => {
+            if (event.ctrlKey && event.code === 'Space') {
+                stopAllFunctions();
+            }
+        });
+    </script>
+</body>
+</html>
